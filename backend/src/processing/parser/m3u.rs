@@ -45,6 +45,21 @@ fn get_value(stack: &mut String, it: &mut std::str::Chars) -> String {
 }
 
 fn token_till(stack: &mut String, it: &mut std::str::Chars, stop_char: char, start_with_alpha: bool) -> Option<String> {
+    if collect_token_till(stack, it, stop_char, start_with_alpha) {
+        let result = (*stack).clone();
+        stack.clear();
+        Some(result)
+    } else {
+        None
+    }
+}
+
+fn collect_token_till(
+    stack: &mut String,
+    it: &mut std::str::Chars,
+    stop_char: char,
+    start_with_alpha: bool,
+) -> bool {
     let mut skip_non_alpha = start_with_alpha;
 
     for ch in it.by_ref() {
@@ -65,13 +80,7 @@ fn token_till(stack: &mut String, it: &mut std::str::Chars, stop_char: char, sta
         stack.push(ch);
     }
 
-    if stack.is_empty() {
-        None
-    } else {
-        let result = (*stack).clone();
-        stack.clear();
-        Some(result)
-    }
+    !stack.is_empty()
 }
 
 #[inline]
@@ -120,8 +129,10 @@ fn process_header(input_name: &str, video_suffixes: &[String], content: &str, ur
     let mut plih = create_empty_playlistitem_header(input_name, url);
     let mut it = content.chars();
     let mut stack = String::with_capacity(64);
-    let line_token = token_till(&mut stack, &mut it, ':', false);
-    if line_token.as_deref() == Some("#EXTINF") {
+    let mut key_stack = String::with_capacity(32);
+    collect_token_till(&mut stack, &mut it, ':', false);
+    if stack.as_str() == "#EXTINF" {
+        stack.clear();
         let mut provider_id = None::<String>;
         let mut c = skip_digit(&mut it);
         loop {
@@ -133,19 +144,18 @@ fn process_header(input_name: &str, video_suffixes: &[String], content: &str, ur
                     } else if chr == ',' {
                         plih.title = get_value(&mut stack, &mut it);
                     } else {
-                        stack.push(chr);
-                        let token = token_till(&mut stack, &mut it, '=', true);
-                        if let Some(t) = token {
+                        key_stack.push(chr);
+                        if collect_token_till(&mut key_stack, &mut it, '=', true) {
                             let value = token_value(&mut stack, &mut it);
-                            let token = t.to_lowercase();
-                            if token.as_str() == "xui-id" {
+                            key_stack.make_ascii_lowercase();
+                            if key_stack.as_str() == "xui-id" {
                                 if !value.is_empty() {
                                     provider_id = Some(value);
                                 }
-                            } else if token == "tvg-chno" {
+                            } else if key_stack.as_str() == "tvg-chno" {
                                 plih.chno = value.parse::<u32>().unwrap_or(0);
                             } else {
-                                process_header_fields!(plih, token.as_str(),
+                                process_header_fields!(plih, key_stack.as_str(),
                                 (id, "tvg-id"),
                                 (group, "group-title"),
                                 (name, "tvg-name"),
@@ -156,6 +166,7 @@ fn process_header(input_name: &str, video_suffixes: &[String], content: &str, ur
                                 (time_shift, "timeshift"),
                                 (rec, "tvg-rec"); value);
                             }
+                            key_stack.clear();
                         }
                     }
                 }

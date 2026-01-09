@@ -1,0 +1,3 @@
+## 2025-05-23 - Rust M3U Parser Optimization
+**Learning:** In hot-loop text parsing (like M3U playlists), reusing a single `String` buffer (or multiple specialized buffers) and avoiding `String` clones/allocations for intermediate tokens (keys, identifiers) yields significant performance wins. Rust's `String::make_ascii_lowercase()` allows in-place case conversion, which is perfect for case-insensitive key matching without allocating new strings.
+**Action:** When parsing key-value pairs where keys are finite and small, use a dedicated reusable buffer and in-place mutations instead of returning new Strings.
