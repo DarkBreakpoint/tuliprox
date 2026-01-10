@@ -27,10 +27,9 @@ async fn m3u_api(api_req: &UserApiRequest, app_state: &AppState) -> impl IntoRes
             match m3u_load_rewrite_playlist(&app_state.app_config, &target, &user).await {
                 Ok(m3u_iter) => {
                     // Convert the iterator into a stream of `Bytes`
-                    let content_stream = stream::iter(m3u_iter.map(|line| {
-                        Ok::<Bytes, String>(Bytes::from(
-                            [line.clone().as_bytes(), b"\n"].concat(),
-                        ))
+                    let content_stream = stream::iter(m3u_iter.map(|mut line| {
+                        line.push('\n');
+                        Ok::<Bytes, String>(Bytes::from(line.into_bytes()))
                     }));
 
                     let mut builder = axum::response::Response::builder()
