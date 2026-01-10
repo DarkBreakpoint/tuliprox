@@ -303,8 +303,8 @@ fn render_param_editor(
                 <h2>{ section_title }</h2>
                 { html_if!(edit_mode, {
                     <div class="tp__panel-config-view__section-actions">
-                        <IconButton name="required" icon="Accept" class="secondary" onclick={add_required}/>
-                        <IconButton name="add" icon="Add" class="primary" onclick={add_param}/>
+                        <IconButton name="required" aria_label="Add required parameters" title="Add required parameters" icon="Accept" class="secondary" onclick={add_required}/>
+                        <IconButton name="add" aria_label="Add parameter" title="Add parameter" icon="Add" class="primary" onclick={add_param}/>
                     </div>
                 })}
             </div>
@@ -345,7 +345,7 @@ fn render_param_editor(
                                             <>
                                                 <Input name="key" label={Option::<String>::None} value={p.key.clone()} placeholder={Some("key".to_string())} on_change={Some(on_key)} />
                                                 <Input name="value" label={Option::<String>::None} value={p.value.clone()} placeholder={Some("value".to_string())} on_change={Some(on_val)} />
-                                                <IconButton name="rm" icon="Delete" class="tp__panel-config-view__param-remove" onclick={on_remove}/>
+                                                <IconButton name="rm" aria_label="Remove parameter" icon="Delete" class="tp__panel-config-view__param-remove" onclick={on_remove}/>
                                             </>
                                         }
                                     } else {

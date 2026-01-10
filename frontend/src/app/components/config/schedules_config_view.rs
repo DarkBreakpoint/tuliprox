@@ -179,7 +179,7 @@ pub fn SchedulesConfigView() -> Html {
                                     { html_if!(deletable, {
                                         <td>
                                         <IconButton class="tp__schedules-config-view__delete-btn"
-                                           name="RemoveSchedule" icon="Delete"
+                                           name="RemoveSchedule" aria_label="Remove schedule" icon="Delete"
                                            onclick={Callback::from(move |_| handle_remove_clone.emit(schedule.clone()))} />
                                         </td>
                                     })}
@@ -224,7 +224,7 @@ pub fn SchedulesConfigView() -> Html {
                     options={target_options.clone()}
                 />
            }})}
-          <IconButton name="AddSchedule" icon="ScheduleAdd" class="tp__button-primary" onclick={handle_add_schedule} />
+          <IconButton name="AddSchedule" aria_label="Add schedule" icon="ScheduleAdd" class="tp__button-primary" onclick={handle_add_schedule} />
           </div>
       }
     };

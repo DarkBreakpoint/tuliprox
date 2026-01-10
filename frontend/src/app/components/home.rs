@@ -176,8 +176,8 @@ pub fn Home() -> Html {
                         </div>
                         <div class={"tp__app-header-toolbar"}>
                             <WebsocketStatus/>
-                            <IconButton name="Theme" icon={if *theme == Theme::Bright {"Moon"} else {"Sun"}} onclick={handle_theme_switch} />
-                            <IconButton name="Logout" icon="Logout" onclick={handle_logout} />
+                            <IconButton name="Theme" aria_label="Switch theme" icon={if *theme == Theme::Bright {"Moon"} else {"Sun"}} onclick={handle_theme_switch} />
+                            <IconButton name="Logout" aria_label="Logout" icon="Logout" onclick={handle_logout} />
                         </div>
                     </div>
                     <div class="tp__app-main__body">

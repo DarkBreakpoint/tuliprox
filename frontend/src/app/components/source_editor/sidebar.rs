@@ -53,9 +53,9 @@ pub fn SourceEditorSidebar(props: &SourceEditorSidebarProps) -> Html {
         // Sidebar
         <div class="tp__source-editor__sidebar">
             <div class="tp__source-editor__sidebar-actions">
-                <IconButton name="layout" icon="Nodes" onclick={props.on_layout.clone()} />
+                <IconButton name="layout" aria_label="Auto Layout" title="Auto Layout" icon="Nodes" onclick={props.on_layout.clone()} />
                 // Delete mode toggle button
-                <IconButton class={if props.delete_mode {"tp__source-editor__sidebar-actions-active"} else {""} } name="toggle_delete" icon="Delete" onclick={props.on_toggle_delete.clone()} />
+                <IconButton class={if props.delete_mode {"tp__source-editor__sidebar-actions-active"} else {""} } name="toggle_delete" aria_label="Toggle delete mode" title="Toggle delete mode" icon="Delete" onclick={props.on_toggle_delete.clone()} />
             </div>
             <div class="tp__source-editor__sidebar-bricks">
                 <CollapsePanel title={translate.t("LABEL.INPUTS")}>

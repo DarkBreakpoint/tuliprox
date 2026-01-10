@@ -154,18 +154,18 @@ pub fn Sidebar(props: &SidebarProps) -> Html {
     let render_collapsed = || {
         html! {
           <div class="tp__app-sidebar__content">
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Dashboard, if *active_menu == ViewType::Dashboard { " active" } else {""})}  icon="DashboardOutline" name={ViewType::Dashboard.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Stats, if *active_menu == ViewType::Stats { " active" } else {""})} icon="Stats" name={ViewType::Stats.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Streams, if *active_menu == ViewType::Streams { " active" } else {""})} icon="Streams" name={ViewType::Streams.to_string()} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Dashboard, if *active_menu == ViewType::Dashboard { " active" } else {""})}  icon="DashboardOutline" name={ViewType::Dashboard.to_string()} aria_label={translate.t("LABEL.DASHBOARD")} title={translate.t("LABEL.DASHBOARD")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Stats, if *active_menu == ViewType::Stats { " active" } else {""})} icon="Stats" name={ViewType::Stats.to_string()} aria_label={translate.t("LABEL.STATS")} title={translate.t("LABEL.STATS")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Streams, if *active_menu == ViewType::Streams { " active" } else {""})} icon="Streams" name={ViewType::Streams.to_string()} aria_label={translate.t("LABEL.STREAMS")} title={translate.t("LABEL.STREAMS")} onclick={&handle_menu_click}></IconButton>
             <span class="tp__app-sidebar__content-space"></span>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Config, if *active_menu == ViewType::Config { " active" } else {""})} icon="Config" name={ViewType::Config.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Users, if *active_menu == ViewType::Users { " active" } else {""})} icon="UserOutline" name={ViewType::Users.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::SourceEditor, if *active_menu == ViewType::SourceEditor { " active" } else {""})} icon="SourceEditor" name={ViewType::SourceEditor.to_string()} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Config, if *active_menu == ViewType::Config { " active" } else {""})} icon="Config" name={ViewType::Config.to_string()} aria_label={translate.t("LABEL.CONFIG")} title={translate.t("LABEL.CONFIG")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::Users, if *active_menu == ViewType::Users { " active" } else {""})} icon="UserOutline" name={ViewType::Users.to_string()} aria_label={translate.t("LABEL.USER")} title={translate.t("LABEL.USER")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::SourceEditor, if *active_menu == ViewType::SourceEditor { " active" } else {""})} icon="SourceEditor" name={ViewType::SourceEditor.to_string()} aria_label={translate.t("LABEL.SOURCE_EDITOR")} title={translate.t("LABEL.SOURCE_EDITOR")} onclick={&handle_menu_click}></IconButton>
             <span class="tp__app-sidebar__content-space"></span>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistUpdate, if *active_menu == ViewType::PlaylistUpdate { " active" } else {""})} icon="Refresh" name={ViewType::PlaylistUpdate.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistEditor, if *active_menu == ViewType::PlaylistEditor { " active" } else {""})} icon="PlayArrowOutline" name={ViewType::PlaylistEditor.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistExplorer, if *active_menu == ViewType::PlaylistExplorer { " active" } else {""})} icon="Live" name={ViewType::PlaylistExplorer.to_string()} onclick={&handle_menu_click}></IconButton>
-            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistEpg, if *active_menu == ViewType::PlaylistEpg { " active" } else {""})} icon="Epg" name={ViewType::PlaylistEpg.to_string()} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistUpdate, if *active_menu == ViewType::PlaylistUpdate { " active" } else {""})} icon="Refresh" name={ViewType::PlaylistUpdate.to_string()} aria_label={translate.t("LABEL.UPDATE")} title={translate.t("LABEL.UPDATE")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistEditor, if *active_menu == ViewType::PlaylistEditor { " active" } else {""})} icon="PlayArrowOutline" name={ViewType::PlaylistEditor.to_string()} aria_label={translate.t("LABEL.PLAYLIST")} title={translate.t("LABEL.PLAYLIST")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistExplorer, if *active_menu == ViewType::PlaylistExplorer { " active" } else {""})} icon="Live" name={ViewType::PlaylistExplorer.to_string()} aria_label={translate.t("LABEL.PLAYLIST_VIEWER")} title={translate.t("LABEL.PLAYLIST_VIEWER")} onclick={&handle_menu_click}></IconButton>
+            <IconButton class={format!("tp__app-sidebar-menu--{}{}", ViewType::PlaylistEpg, if *active_menu == ViewType::PlaylistEpg { " active" } else {""})} icon="Epg" name={ViewType::PlaylistEpg.to_string()} aria_label={translate.t("LABEL.PLAYLIST_EPG")} title={translate.t("LABEL.PLAYLIST_EPG")} onclick={&handle_menu_click}></IconButton>
           </div>
         }
     };
@@ -192,7 +192,7 @@ pub fn Sidebar(props: &SidebarProps) -> Html {
               }
               { html_if!(
                   !*block_sidebar_toggle,
-                  { <IconButton name="ToggleSidebar" icon={"Sidebar"} onclick={toggle_sidebar} /> }
+                  { <IconButton name="ToggleSidebar" aria_label="Toggle Sidebar" icon={"Sidebar"} onclick={toggle_sidebar} /> }
                 )}
             </div>
                 {
