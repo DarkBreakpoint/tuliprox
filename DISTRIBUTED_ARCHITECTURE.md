@@ -32,7 +32,7 @@ files (`m3u_*.db`, `xtream_*.db`, etc.).
 - **Goal**: Provide PostgreSQL as an optional backend for persistent and shared state.
 - **Why PostgreSQL**: It provides strong consistency, transactional updates, and can easily store
   structured metadata and JSON blobs.
-- **Complexit.(High)**:
+- **Complexity (High)**:
   - We must define a unified `PlaylistRepository` and `MetadataRepository` trait.
   - The existing `BPlusTree` implementation must be refactored to implement these traits.
   - A new `sqlx`-based PostgreSQL implementation must be written.
@@ -62,7 +62,7 @@ limits are tracked locally via `ActiveUserManager`.
   limiting across all nodes.
 - **Why Redis**: It offers high-throughput, low-latency operations perfect for distributed counters,
   rate limiting, and session state.
-- **Complexit.(Medium)**:
+- **Complexity (Medium)**:
   - We must define traits for `SessionStore` and `RateLimitStore`.
   - The `tower_governor` configuration must conditionally use the `governor-redis` store or the
     default memory store based on config.
@@ -80,7 +80,7 @@ limits are tracked locally via `ActiveUserManager`.
 (`SharedStreamManager`) and tracks upstream provider connection limits (`ActiveProviderManager`).
 
 - **Goal**: Coordinate stream pulling and provider limits across nodes when Redis is enabled.
-- **Complexit.(High)**:
+- **Complexity (High)**:
   - When Redis is enabled, stream sharing becomes significantly more complex. Node A might be
     pulling the stream, and Node B receives a request for it.
   - Node B must discover that Node A owns the stream (via Redis) and then proxy the request
@@ -128,6 +128,9 @@ Injection at startup.
 4. **Stream Sharing Registry**: (`StreamRegistry`) replacing `SharedStreamManager`'s internal state.
     This tracks *which* node is currently pulling a specific live stream so other nodes can fetch it
     internally instead of opening a new provider connection.
+5. **EPG Matching**: (`EpgMatcher`) extracting the current string-based fuzzy matching logic into a
+    trait so that the application can transparently swap it out for PostgreSQL `pgvector` semantic
+    similarity searches.
 
 ```rust
 // Conceptual Traits
@@ -158,6 +161,12 @@ pub trait StreamRegistry: Send + Sync {
     async fn lookup_stream(&self, stream_id: &str) -> Result<Option<String>, Error>;
     async fn unregister_stream(&self, stream_id: &str) -> Result<(), Error>;
 }
+
+#[async_trait]
+pub trait EpgMatcher: Send + Sync {
+    // Matches a playlist channel name against the EPG database
+    async fn find_best_match(&self, channel_name: &str) -> Result<Option<EpgId>, Error>;
+}
 ```
 
 **Architecture Diagram:**
@@ -169,6 +178,7 @@ classDiagram
         +Arc~SessionStore~ session_store
         +Arc~ProviderLimitStore~ provider_store
         +Arc~StreamRegistry~ stream_registry
+        +Arc~EpgMatcher~ epg_matcher
     }
 
     class PlaylistRepository {
@@ -195,12 +205,21 @@ classDiagram
         +lookup_stream(stream_id)
     }
 
+    class EpgMatcher {
+        <<interface>>
+        +find_best_match(channel_name)
+    }
+
     class LocalMemoryStore {
         -hash_map: Mutex~HashMap~
     }
 
     class BPlusTreeRepository {
         -bplus_tree: File
+    }
+
+    class LocalFuzzyMatcher {
+        -fuzzy_algo: StringDistance
     }
 
     class RedisStore {
@@ -211,10 +230,15 @@ classDiagram
         -pool: PgPool
     }
 
+    class PostgresVectorMatcher {
+        -pool: PgPool
+    }
+
     AppState --> PlaylistRepository : depends on
     AppState --> SessionStore : depends on
     AppState --> ProviderLimitStore : depends on
     AppState --> StreamRegistry : depends on
+    AppState --> EpgMatcher : depends on
 
     PlaylistRepository <|.. BPlusTreeRepository : implements (Standalone)
     PlaylistRepository <|.. PostgresRepository : implements (Distributed)
@@ -227,6 +251,9 @@ classDiagram
 
     StreamRegistry <|.. LocalMemoryStore : implements (Standalone)
     StreamRegistry <|.. RedisStore : implements (Distributed)
+
+    EpgMatcher <|.. LocalFuzzyMatcher : implements (Standalone)
+    EpgMatcher <|.. PostgresVectorMatcher : implements (Distributed pgvector)
 ```
 
 **Benefits of Step 1:**
@@ -254,7 +281,7 @@ classDiagram
 ### Step 4: Database Migration to PostgreSQL
 
 - Design PostgreSQL schema and `pgvector` integration for EPG mapping.
-- Implement the PostgreSQL repository utilizing `sqlx`.
+- Implement the `PlaylistRepository`, `MetadataRepository`, and `EpgMatcher` traits utilizing `sqlx`.
 - **Benefit**: Decentralizes data storage and unlocks advanced semantic search capabilities.
 
 ### Step 5: Distributed Stream Sharing
