@@ -108,11 +108,85 @@ compiles and runs successfully in both Standalone and Distributed configurations
 
 ### Step 1: Interface Abstraction (Preparation)
 
-- Refactor existing state managers (`ActiveUserManager`, `SharedStreamManager`) behind Rust traits.
-- Refactor the database layer to utilize a `Repository` trait rather than calling `BPlusTree`
-  directly.
-- **Benefit**: Decouples the business logic from the storage engine, paving the way for new
-  backends.
+Before introducing any new data stores, the application must decouple its business logic from its
+data persistence layers. Currently, `tuliprox` directly instantiates and calls local BPlusTree logic
+or in-memory HashMaps. We need to introduce the **Repository Pattern**.
+
+**The Repository Pattern Strategy:**
+
+We will create core domain traits that define *what* data operations are possible, hiding *how* the
+data is actually stored. The application will be refactored to use these trait objects via Dependency
+Injection at startup.
+
+```rust
+// Conceptual Traits
+#[async_trait]
+pub trait PlaylistRepository: Send + Sync {
+    async fn get_channel(&self, id: &str) -> Result<Option<Channel>, Error>;
+    async fn update_playlist(&self, target: &str, playlist: Playlist) -> Result<(), Error>;
+}
+
+#[async_trait]
+pub trait SessionStore: Send + Sync {
+    async fn add_connection(&self, user_id: &str) -> Result<u32, Error>;
+    async fn remove_connection(&self, user_id: &str) -> Result<u32, Error>;
+    async fn get_active_connections(&self, user_id: &str) -> Result<u32, Error>;
+}
+```
+
+**Architecture Diagram:**
+
+```mermaid
+classDiagram
+    class AppState {
+        +Arc~PlaylistRepository~ playlist_repo
+        +Arc~SessionStore~ session_store
+    }
+
+    class PlaylistRepository {
+        <<interface>>
+        +get_channel(id)
+        +update_playlist(target, playlist)
+    }
+
+    class SessionStore {
+        <<interface>>
+        +add_connection(user_id)
+        +remove_connection(user_id)
+    }
+
+    class BPlusTreeRepository {
+        -bplus_tree: File
+    }
+
+    class PostgresRepository {
+        -pool: PgPool
+    }
+
+    class LocalMemoryStore {
+        -hash_map: Mutex~HashMap~
+    }
+
+    class RedisSessionStore {
+        -redis_client: MultiplexedConnection
+    }
+
+    AppState --> PlaylistRepository : depends on
+    AppState --> SessionStore : depends on
+
+    PlaylistRepository <|.. BPlusTreeRepository : implements (Standalone Mode)
+    PlaylistRepository <|.. PostgresRepository : implements (Distributed Mode)
+
+    SessionStore <|.. LocalMemoryStore : implements (Standalone Mode)
+    SessionStore <|.. RedisSessionStore : implements (Distributed Mode)
+```
+
+**Benefits of Step 1:**
+
+- Decouples the business logic from the storage engine.
+- Prevents having `if redis_enabled {} else {}` littered throughout the codebase.
+- Allows for easy swapping between "Standalone" and "Distributed" modes at startup during
+  dependency wiring.
 
 ### Step 2: Introduce Redis for Rate Limiting and User Sessions
 
