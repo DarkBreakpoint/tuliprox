@@ -4,17 +4,17 @@
 
 The goal of making `tuliprox` a distributed application is to allow multiple identical instances
 (nodes) to run concurrently behind a load balancer. This enables high availability, load balancing
-for stream proxying, and horizontal scalability for processing and metadata retrieval.
+for stream proxying, and horizontal scalabilit.for processing and metadata retrieval.
 
 Currently, `tuliprox` relies heavily on local state:
 
-- Local SQLite / custom BPlusTree databases (`backend/src/repository/bplustree.rs`) for metadata,
+- Local SQLit./ custom BPlusTree databases (`backend/src/repository/bplustree.rs`) for metadata,
   playlists, and library storage.
 - In-memory tracking (`ActiveUserManager`, `ActiveProviderManager`, `SharedStreamManager`) for user
   connections, sessions, stream sharing, and rate limiting (via `tower-governor`).
 - Local configuration files and cache directories.
 
-To transition to a distributed architecture while retaining the ability to run as a single,
+To transition to a distributed architecture while retaining the abilit.to run as a single,
 lightweight node, we will introduce **PostgreSQL** and **Redis** as *optional*, configurable
 backends. Users can choose to run `tuliprox` in "Standalone Mode" (using the existing local state)
 or "Distributed Mode" (using PostgreSQL and Redis).
@@ -22,9 +22,9 @@ or "Distributed Mode" (using PostgreSQL and Redis).
 ## Core Architectural Changes & Complexity
 
 Maintaining two modes (Standalone and Distributed) introduces architectural complexity, specifically
-the need to abstract data access and state management behind traits (interfaces).
+the need to abstract data access and state management behind trait.(interfaces).
 
-### 1. Database Option: BPlusTree/SQLite OR PostgreSQL
+### 1. Database Option: BPlusTree/SQLit.OR PostgreSQL
 
 Currently, metadata, playlist caches, and library data are stored locally using custom BPlusTree
 files (`m3u_*.db`, `xtream_*.db`, etc.).
@@ -32,7 +32,7 @@ files (`m3u_*.db`, `xtream_*.db`, etc.).
 - **Goal**: Provide PostgreSQL as an optional backend for persistent and shared state.
 - **Why PostgreSQL**: It provides strong consistency, transactional updates, and can easily store
   structured metadata and JSON blobs.
-- **Complexity (High)**:
+- **Complexit.(High)**:
   - We must define a unified `PlaylistRepository` and `MetadataRepository` trait.
   - The existing `BPlusTree` implementation must be refactored to implement these traits.
   - A new `sqlx`-based PostgreSQL implementation must be written.
@@ -62,7 +62,7 @@ limits are tracked locally via `ActiveUserManager`.
   limiting across all nodes.
 - **Why Redis**: It offers high-throughput, low-latency operations perfect for distributed counters,
   rate limiting, and session state.
-- **Complexity (Medium)**:
+- **Complexit.(Medium)**:
   - We must define traits for `SessionStore` and `RateLimitStore`.
   - The `tower_governor` configuration must conditionally use the `governor-redis` store or the
     default memory store based on config.
@@ -80,7 +80,7 @@ limits are tracked locally via `ActiveUserManager`.
 (`SharedStreamManager`) and tracks upstream provider connection limits (`ActiveProviderManager`).
 
 - **Goal**: Coordinate stream pulling and provider limits across nodes when Redis is enabled.
-- **Complexity (High)**:
+- **Complexit.(High)**:
   - When Redis is enabled, stream sharing becomes significantly more complex. Node A might be
     pulling the stream, and Node B receives a request for it.
   - Node B must discover that Node A owns the stream (via Redis) and then proxy the request
@@ -110,13 +110,24 @@ compiles and runs successfully in both Standalone and Distributed configurations
 
 Before introducing any new data stores, the application must decouple its business logic from its
 data persistence layers. Currently, `tuliprox` directly instantiates and calls local BPlusTree logic
-or in-memory HashMaps. We need to introduce the **Repository Pattern**.
+or in-memory HashMaps. We need to introduce the **Repository Pattern** and **Store Traits**.
 
 **The Repository Pattern Strategy:**
 
 We will create core domain traits that define *what* data operations are possible, hiding *how* the
 data is actually stored. The application will be refactored to use these trait objects via Dependency
 Injection at startup.
+
+**What needs to be abstracted?**
+
+1. **Playlist & Metadata Storage**: (`PlaylistRepository`, `MetadataRepository`) replacing direct
+    `bplustree` accesses.
+2. **User Session State**: (`SessionStore`) replacing `ActiveUserManager`'s internal HashMap.
+3. **Provider Connection Limits**: (`ProviderLimitStore`) replacing `ActiveProviderManager`'s
+    internal counters. This is necessary to ensure `tuliprox` does not exceed upstream limits globally.
+4. **Stream Sharing Registry**: (`StreamRegistry`) replacing `SharedStreamManager`'s internal state.
+    This tracks *which* node is currently pulling a specific live stream so other nodes can fetch it
+    internally instead of opening a new provider connection.
 
 ```rust
 // Conceptual Traits
@@ -132,6 +143,21 @@ pub trait SessionStore: Send + Sync {
     async fn remove_connection(&self, user_id: &str) -> Result<u32, Error>;
     async fn get_active_connections(&self, user_id: &str) -> Result<u32, Error>;
 }
+
+#[async_trait]
+pub trait ProviderLimitStore: Send + Sync {
+    async fn acquire_connection(&self, provider_id: &str, max_limit: u32) -> Result<bool, Error>;
+    async fn release_connection(&self, provider_id: &str) -> Result<(), Error>;
+}
+
+#[async_trait]
+pub trait StreamRegistry: Send + Sync {
+    // Registers that this node is pulling the stream
+    async fn register_stream(&self, stream_id: &str, node_address: &str) -> Result<(), Error>;
+    // Discovers which node is currently pulling the stream
+    async fn lookup_stream(&self, stream_id: &str) -> Result<Option<String>, Error>;
+    async fn unregister_stream(&self, stream_id: &str) -> Result<(), Error>;
+}
 ```
 
 **Architecture Diagram:**
@@ -141,12 +167,14 @@ classDiagram
     class AppState {
         +Arc~PlaylistRepository~ playlist_repo
         +Arc~SessionStore~ session_store
+        +Arc~ProviderLimitStore~ provider_store
+        +Arc~StreamRegistry~ stream_registry
     }
 
     class PlaylistRepository {
         <<interface>>
         +get_channel(id)
-        +update_playlist(target, playlist)
+        +update_playlist(...)
     }
 
     class SessionStore {
@@ -155,30 +183,50 @@ classDiagram
         +remove_connection(user_id)
     }
 
-    class BPlusTreeRepository {
-        -bplus_tree: File
+    class ProviderLimitStore {
+        <<interface>>
+        +acquire_connection(provider_id)
+        +release_connection(provider_id)
     }
 
-    class PostgresRepository {
-        -pool: PgPool
+    class StreamRegistry {
+        <<interface>>
+        +register_stream(stream_id, node_ip)
+        +lookup_stream(stream_id)
     }
 
     class LocalMemoryStore {
         -hash_map: Mutex~HashMap~
     }
 
-    class RedisSessionStore {
+    class BPlusTreeRepository {
+        -bplus_tree: File
+    }
+
+    class RedisStore {
         -redis_client: MultiplexedConnection
+    }
+
+    class PostgresRepository {
+        -pool: PgPool
     }
 
     AppState --> PlaylistRepository : depends on
     AppState --> SessionStore : depends on
+    AppState --> ProviderLimitStore : depends on
+    AppState --> StreamRegistry : depends on
 
-    PlaylistRepository <|.. BPlusTreeRepository : implements (Standalone Mode)
-    PlaylistRepository <|.. PostgresRepository : implements (Distributed Mode)
+    PlaylistRepository <|.. BPlusTreeRepository : implements (Standalone)
+    PlaylistRepository <|.. PostgresRepository : implements (Distributed)
 
-    SessionStore <|.. LocalMemoryStore : implements (Standalone Mode)
-    SessionStore <|.. RedisSessionStore : implements (Distributed Mode)
+    SessionStore <|.. LocalMemoryStore : implements (Standalone)
+    SessionStore <|.. RedisStore : implements (Distributed)
+
+    ProviderLimitStore <|.. LocalMemoryStore : implements (Standalone)
+    ProviderLimitStore <|.. RedisStore : implements (Distributed)
+
+    StreamRegistry <|.. LocalMemoryStore : implements (Standalone)
+    StreamRegistry <|.. RedisStore : implements (Distributed)
 ```
 
 **Benefits of Step 1:**
@@ -191,10 +239,11 @@ classDiagram
 ### Step 2: Introduce Redis for Rate Limiting and User Sessions
 
 - Add the `redis` dependency.
-- Create a `RedisSessionStore` that implements the new traits.
+- Implement the `SessionStore`, `ProviderLimitStore`, and `StreamRegistry` traits via a new
+  `RedisStore` implementation.
 - Update configuration to allow enabling Redis.
 - **Benefit**: High ROI. Allows running multiple proxy nodes immediately, correctly tracking user
-  connections globally.
+  connections globally and preventing upstream provider bans.
 
 ### Step 3: Distributed Locking for Scheduled Tasks
 
@@ -210,7 +259,9 @@ classDiagram
 
 ### Step 5: Distributed Stream Sharing
 
-- Implement node-to-node stream sharing discovery via Redis and internal HTTP proxying.
+- Utilize the `StreamRegistry` data added in Step 2 to implement node-to-node stream sharing
+  discovery.
+- Implement internal HTTP proxying to stream data from the "owner" node to the requesting node.
 - **Benefit**: Maximizes provider connection efficiency across the entire cluster.
 
 ## Conclusion
