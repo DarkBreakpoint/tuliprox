@@ -1,89 +1,147 @@
 # DISTRIBUTED_ARCHITECTURE
 
 ## Overview
-The goal of making `tuliprox` a distributed application is to allow multiple identical instances (nodes) to run concurrently behind a load balancer. This enables high availability, load balancing for stream proxying, and horizontal scalability for processing and metadata retrieval.
+
+The goal of making `tuliprox` a distributed application is to allow multiple identical instances
+(nodes) to run concurrently behind a load balancer. This enables high availability, load balancing
+for stream proxying, and horizontal scalability for processing and metadata retrieval.
 
 Currently, `tuliprox` relies heavily on local state:
-- Local SQLite / custom BPlusTree databases (`backend/src/repository/bplustree.rs`) for metadata, playlists, and library storage.
-- In-memory tracking (`ActiveUserManager`, `ActiveProviderManager`, `SharedStreamManager`) for user connections, sessions, stream sharing, and rate limiting (via `tower-governor`).
+
+- Local SQLite / custom BPlusTree databases (`backend/src/repository/bplustree.rs`) for metadata,
+  playlists, and library storage.
+- In-memory tracking (`ActiveUserManager`, `ActiveProviderManager`, `SharedStreamManager`) for user
+  connections, sessions, stream sharing, and rate limiting (via `tower-governor`).
 - Local configuration files and cache directories.
 
-To transition to a distributed architecture, we will decouple the local state into a centralized and shared state utilizing **PostgreSQL** and **Redis**.
+To transition to a distributed architecture while retaining the ability to run as a single,
+lightweight node, we will introduce **PostgreSQL** and **Redis** as *optional*, configurable
+backends. Users can choose to run `tuliprox` in "Standalone Mode" (using the existing local state)
+or "Distributed Mode" (using PostgreSQL and Redis).
 
-## Core Architectural Changes
+## Core Architectural Changes & Complexity
 
-### 1. Database Migration: BPlusTree/SQLite to PostgreSQL
-Currently, metadata, playlist caches, and library data are stored locally using custom BPlusTree files (`m3u_*.db`, `xtream_*.db`, etc.).
-- **Goal**: Move persistent and shared state into PostgreSQL.
-- **Why PostgreSQL**: It provides strong consistency, transactional updates, and can easily store structured metadata and JSON blobs.
+Maintaining two modes (Standalone and Distributed) introduces architectural complexity, specifically
+the need to abstract data access and state management behind traits (interfaces).
+
+### 1. Database Option: BPlusTree/SQLite OR PostgreSQL
+
+Currently, metadata, playlist caches, and library data are stored locally using custom BPlusTree
+files (`m3u_*.db`, `xtream_*.db`, etc.).
+
+- **Goal**: Provide PostgreSQL as an optional backend for persistent and shared state.
+- **Why PostgreSQL**: It provides strong consistency, transactional updates, and can easily store
+  structured metadata and JSON blobs.
+- **Complexity (High)**:
+  - We must define a unified `PlaylistRepository` and `MetadataRepository` trait.
+  - The existing `BPlusTree` implementation must be refactored to implement these traits.
+  - A new `sqlx`-based PostgreSQL implementation must be written.
+  - The application configuration must dictate which implementation is injected at startup.
 - **Implementation Tasks**:
-  - Integrate an asynchronous database driver (e.g., `sqlx` or `tokio-postgres`).
-  - Define PostgreSQL schemas for:
-    - Target playlists and mapping results.
-    - Metadata and EPG data.
-    - User configuration/bouquets.
-  - Implement a PostgreSQL-backed repository layer extending or replacing the current `bplustree.rs` / `sqlite` repositories.
-  - *Note*: Large binary blobs (like the actual stream data or images) should still be handled via distributed caching or object storage, but metadata goes to Postgres.
+  - Integrate an asynchronous database driver (e.g., `sqlx`).
+  - Define PostgreSQL schemas for targets, playlists, metadata, and configurations.
+  - Implement a PostgreSQL-backed repository layer.
 
-### 2. Rate Limiting and Session Tracking: In-memory to Redis
-Rate limiting is currently handled by `tower-governor` using local memory, and session/connection limits are tracked locally via `ActiveUserManager`.
-- **Goal**: Enforce global connection limits and rate limiting across all nodes using Redis.
-- **Why Redis**: It offers high-throughput, low-latency operations perfect for distributed counters, rate limiting, and session state.
+### 2. Leveraging PostgreSQL Vector Support (`pgvector`)
+
+If the user opts into PostgreSQL, `tuliprox` can take advantage of the `pgvector` extension.
+
+- **EPG Smart Matching**: Currently, `tuliprox` uses fuzzy string matching to map playlist channels
+  to EPG XMLTV IDs. By using `pgvector`, channel names can be converted to embeddings. This allows
+  for semantic similarity searches, vastly improving the accuracy of EPG mapping, especially when
+  channel names contain abbreviations, different languages, or typos.
+- **Content Discovery/Search**: When resolving TMDB IDs or searching the local library, vector
+  search can provide "more like this" functionality or semantic search capabilities for the Web UI.
+
+### 3. Rate Limiting and Session Tracking Option: In-memory OR Redis
+
+Rate limiting is currently handled by `tower-governor` using local memory, and session/connection
+limits are tracked locally via `ActiveUserManager`.
+
+- **Goal**: Provide Redis as an optional backend to enforce global connection limits and rate
+  limiting across all nodes.
+- **Why Redis**: It offers high-throughput, low-latency operations perfect for distributed counters,
+  rate limiting, and session state.
+- **Complexity (Medium)**:
+  - We must define traits for `SessionStore` and `RateLimitStore`.
+  - The `tower_governor` configuration must conditionally use the `governor-redis` store or the
+    default memory store based on config.
+  - `ActiveUserManager` must be refactored to conditionally sync with Redis or rely solely on
+    internal HashMaps.
 - **Implementation Tasks**:
-  - Add `redis` crate support with asynchronous multiplexing (e.g., `redis::aio::MultiplexedConnection` or `bb8-redis` connection pooling).
-  - Replace the local memory store in `tower_governor` with a Redis-backed store. (Depending on the `tower-governor` version, this may require writing a custom storage backend or utilizing `governor-redis`).
-  - Migrate `ActiveUserManager` to use Redis hashes/sets to track active user connections globally.
-  - Ensure operations checking `max_connections` increment and decrement atomic counters in Redis (using lua scripts if necessary to avoid race conditions).
+  - Add `redis` crate support with asynchronous multiplexing (e.g.,
+    `redis::aio::MultiplexedConnection` or `bb8-redis`).
+  - Implement Redis-backed session tracking, utilizing Lua scripts to ensure atomic increment and
+    decrement operations when checking `max_connections`.
 
-### 3. Distributed Stream Sharing & Provider Limits
-`tuliprox` shares live stream connections to upstream providers to reduce load (`SharedStreamManager`) and tracks upstream provider connection limits (`ActiveProviderManager`).
-- **Goal**: Coordinate stream pulling and provider limits across nodes.
-- **Why Redis**: Fast pub/sub and atomic operations.
+### 4. Distributed Stream Sharing & Provider Limits
+
+`tuliprox` shares live stream connections to upstream providers to reduce load
+(`SharedStreamManager`) and tracks upstream provider connection limits (`ActiveProviderManager`).
+
+- **Goal**: Coordinate stream pulling and provider limits across nodes when Redis is enabled.
+- **Complexity (High)**:
+  - When Redis is enabled, stream sharing becomes significantly more complex. Node A might be
+    pulling the stream, and Node B receives a request for it.
+  - Node B must discover that Node A owns the stream (via Redis) and then proxy the request
+    internally to Node A. This requires an internal HTTP proxying mechanism between nodes.
 - **Implementation Tasks**:
-  - **Provider Limits**: Migrate `ActiveProviderManager` to use Redis to track how many connections are currently open to a specific upstream provider.
-  - **Stream Sharing**:
-    - When a client requests a stream, the node checks Redis to see if another node is already pulling this stream.
-    - If so, the requesting node needs a mechanism to receive the stream data from the node pulling it (e.g., via internal proxying/HTTP streaming between nodes or a pub/sub mechanism if stream chunks are small enough, though internal HTTP streaming is preferred for bandwidth).
-    - If not, the current node pulls the stream from the provider and registers itself in Redis as the "owner" of the stream.
+  - Migrate `ActiveProviderManager` to optionally use Redis to track open connections to a specific
+    upstream provider.
+  - Implement node discovery and internal stream routing for `SharedStreamManager`.
 
-### 4. Background Workers & Scheduled Tasks
+### 5. Background Workers & Scheduled Tasks
+
 `tuliprox` runs background tasks for metadata updates (TMDB, FFprobe) and playlist updates.
-- **Goal**: Prevent multiple nodes from executing the exact same playlist update or metadata probe simultaneously.
+
+- **Goal**: Prevent multiple nodes from executing the exact same playlist update or metadata probe
+  simultaneously when in distributed mode.
 - **Implementation Tasks**:
   - Implement a distributed locking mechanism using Redis (e.g., Redlock or simple `SET NX PX`).
-  - When a cron schedule triggers a `PlaylistUpdate` or `LibraryScan`, the node attempts to acquire the lock. Only the node holding the lock performs the update and persists the changes to PostgreSQL.
-
-### 5. Config Management and Hot Reloading
-- **Goal**: Ensure all nodes operate on the same configuration.
-- **Implementation Tasks**:
-  - Store configuration files in a shared filesystem or database.
-  - If stored in PostgreSQL, nodes can subscribe to a Redis Pub/Sub channel (e.g., `config_updates`) to trigger hot-reloads simultaneously when the web UI saves new configurations.
+  - Wrap scheduled tasks (`PlaylistUpdate`, `LibraryScan`) with the lock. Only the node holding the
+    lock performs the update.
 
 ## Recommended Steps for Implementation
 
-The transition should be done incrementally to ensure stability:
+To manage the complexity, the transition should be done incrementally. At each step, ensure the code
+compiles and runs successfully in both Standalone and Distributed configurations.
 
-**Step 1: Introduce Redis for Rate Limiting and User Sessions (Easiest & Highest ROI)**
+### Step 1: Interface Abstraction (Preparation)
+
+- Refactor existing state managers (`ActiveUserManager`, `SharedStreamManager`) behind Rust traits.
+- Refactor the database layer to utilize a `Repository` trait rather than calling `BPlusTree`
+  directly.
+- **Benefit**: Decouples the business logic from the storage engine, paving the way for new
+  backends.
+
+### Step 2: Introduce Redis for Rate Limiting and User Sessions
+
 - Add the `redis` dependency.
-- Create a `RedisClient` service.
-- Refactor `ActiveUserManager` to sync active connections with Redis.
-- Update `tower-governor` configuration to use a Redis store.
-- **Benefit**: Allows you to run multiple proxy nodes immediately, correctly tracking user connections globally.
+- Create a `RedisSessionStore` that implements the new traits.
+- Update configuration to allow enabling Redis.
+- **Benefit**: High ROI. Allows running multiple proxy nodes immediately, correctly tracking user
+  connections globally.
 
-**Step 2: Distributed Locking for Scheduled Tasks**
+### Step 3: Distributed Locking for Scheduled Tasks
+
 - Implement Redis-based distributed locks.
-- Wrap scheduled tasks (`PlaylistUpdate`, `LibraryScan`) with the lock.
-- **Benefit**: Prevents multiple nodes from hammering the provider at the same scheduled time.
+- Wrap scheduled tasks to check for the lock if Redis is enabled.
+- **Benefit**: Safe concurrent cron execution.
 
-**Step 3: Database Migration to PostgreSQL**
-- Design PostgreSQL schema.
-- Implement the PostgreSQL repository.
-- Add a configuration toggle to switch between local `BPlusTree` and `PostgreSQL`.
-- **Benefit**: Decentralizes data storage. Note that this is the most complex step as it replaces the core data layer.
+### Step 4: Database Migration to PostgreSQL
 
-**Step 4: Distributed Stream Sharing**
-- Implement node-to-node stream sharing discovery via Redis.
+- Design PostgreSQL schema and `pgvector` integration for EPG mapping.
+- Implement the PostgreSQL repository utilizing `sqlx`.
+- **Benefit**: Decentralizes data storage and unlocks advanced semantic search capabilities.
+
+### Step 5: Distributed Stream Sharing
+
+- Implement node-to-node stream sharing discovery via Redis and internal HTTP proxying.
 - **Benefit**: Maximizes provider connection efficiency across the entire cluster.
 
 ## Conclusion
-By replacing local state storage with PostgreSQL and utilizing Redis for high-speed tracking and locking, `tuliprox` can transition into a highly available, horizontally scalable distributed application without compromising its core features.
+
+By abstracting state management and data access behind traits, `tuliprox` can maintain its
+lightweight Standalone mode while offering a powerful Distributed mode backed by PostgreSQL (with
+`pgvector` enhancements) and Redis. This modular approach ensures flexibility for deployments of
+all sizes.
