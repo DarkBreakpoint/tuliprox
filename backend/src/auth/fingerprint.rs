@@ -56,24 +56,36 @@ impl Fingerprint {
         let mut user_agent = None;
         let mut forwarded_for = None;
         let mut real_ip = None;
+        let mut cf_connecting_ip = None;
+        let mut true_client_ip = None;
         for header in &req.headers {
             if  header.0.as_str().eq_ignore_ascii_case(axum::http::header::USER_AGENT.as_str()) {
                 if let Ok(val) = header.1.to_str() {
                     user_agent = validate_header(val);
                 }
-            } else if  header.0.as_str().eq_ignore_ascii_case("x-forwarded-for") {
+            } else if header.0.as_str().eq_ignore_ascii_case("cf-connecting-ip") {
                 if let Ok(val) = header.1.to_str() {
-                    forwarded_for = validate_header(val);
+                    cf_connecting_ip = validate_header(val);
+                }
+            } else if header.0.as_str().eq_ignore_ascii_case("true-client-ip") {
+                if let Ok(val) = header.1.to_str() {
+                    true_client_ip = validate_header(val);
                 }
             } else if  header.0.as_str().eq_ignore_ascii_case("x-real-ip") {
                 if let Ok(val) = header.1.to_str() {
                     real_ip = validate_header(val);
                 }
+            } else if  header.0.as_str().eq_ignore_ascii_case("x-forwarded-for") {
+                if let Ok(val) = header.1.to_str() {
+                    forwarded_for = validate_header(val);
+                }
             }
         }
 
-        let client_ip = real_ip.as_ref()
+        let client_ip = cf_connecting_ip.as_ref()
             .map(ToString::to_string)
+            .or(true_client_ip.as_ref().map(ToString::to_string))
+            .or(real_ip.as_ref().map(ToString::to_string))
             .or(forwarded_for.as_ref().map(ToString::to_string))
             .unwrap_or_else(|| addr.ip().to_string());
 

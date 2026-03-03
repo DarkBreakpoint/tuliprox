@@ -50,7 +50,9 @@ use std::{
     sync::{atomic::AtomicI8, Arc},
 };
 use tokio_util::sync::CancellationToken;
-use tower_governor::key_extractor::SmartIpKeyExtractor;
+use forwarded_header_value::{ForwardedHeaderValue, Identifier};
+use std::net::IpAddr;
+use tower_governor::{errors::GovernorError, key_extractor::KeyExtractor};
 use tower_http::services::ServeDir;
 
 const METADATA_TRIGGER_WAIT_CYCLE_LIMIT: u32 = 900;
@@ -372,10 +374,63 @@ pub async fn start_server(app_config: Arc<AppConfig>, targets: Arc<ProcessTarget
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloudflareIpKeyExtractor;
+
+impl KeyExtractor for CloudflareIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
+        let headers = req.headers();
+
+        headers
+            .get("cf-connecting-ip")
+            .and_then(|hv| hv.to_str().ok())
+            .and_then(|s| s.parse::<IpAddr>().ok())
+            .or_else(|| {
+                headers
+                    .get("true-client-ip")
+                    .and_then(|hv| hv.to_str().ok())
+                    .and_then(|s| s.parse::<IpAddr>().ok())
+            })
+            .or_else(|| {
+                headers
+                    .get("x-real-ip")
+                    .and_then(|hv| hv.to_str().ok())
+                    .and_then(|s| s.parse::<IpAddr>().ok())
+            })
+            .or_else(|| {
+                headers
+                    .get("x-forwarded-for")
+                    .and_then(|hv| hv.to_str().ok())
+                    .and_then(|s| s.split(',').find_map(|s| s.trim().parse::<IpAddr>().ok()))
+            })
+            .or_else(|| {
+                headers.get_all(axum::http::header::FORWARDED).iter().find_map(|hv| {
+                    hv.to_str()
+                        .ok()
+                        .and_then(|s| ForwardedHeaderValue::from_forwarded(s).ok())
+                        .and_then(|f| {
+                            f.iter()
+                                .filter_map(|fs| fs.forwarded_for.as_ref())
+                                .find_map(|ff| match ff {
+                                    Identifier::SocketAddr(a) => Some(a.ip()),
+                                    Identifier::IpAddr(ip) => Some(*ip),
+                                    _ => None,
+                                })
+                        })
+                })
+            })
+            .or_else(|| req.extensions().get::<axum::extract::ConnectInfo<SocketAddr>>().map(|addr| addr.0.ip()))
+            .or_else(|| req.extensions().get::<SocketAddr>().map(|addr| addr.ip()))
+            .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
+
 fn add_rate_limiter(router: Router<Arc<AppState>>, rate_limit_cfg: &RateLimitConfig) -> Router<Arc<AppState>> {
     if rate_limit_cfg.enabled {
         let governor_conf = tower_governor::governor::GovernorConfigBuilder::default()
-            .key_extractor(SmartIpKeyExtractor)
+            .key_extractor(CloudflareIpKeyExtractor)
             .per_millisecond(rate_limit_cfg.period_millis)
             .burst_size(rate_limit_cfg.burst_size)
             .finish();
@@ -400,11 +455,27 @@ async fn log_req(req: Request, next: Next) -> impl axum::response::IntoResponse 
 
     let headers = req.headers();
     let client_ip = headers
-        .get("x-real-ip")
+        .get("cf-connecting-ip")
         .and_then(|h| h.to_str().ok())
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get("true-client-ip")
+                .and_then(|h| h.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|h| h.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        })
         .or_else(|| {
             headers
                 .get("x-forwarded-for")
