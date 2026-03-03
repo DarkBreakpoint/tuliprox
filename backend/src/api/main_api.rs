@@ -422,7 +422,7 @@ impl KeyExtractor for CloudflareIpKeyExtractor {
                 })
             })
             .or_else(|| req.extensions().get::<axum::extract::ConnectInfo<SocketAddr>>().map(|addr| addr.0.ip()))
-            .or_else(|| req.extensions().get::<SocketAddr>().map(|addr| addr.ip()))
+            .or_else(|| req.extensions().get::<SocketAddr>().map(std::net::SocketAddr::ip))
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
