@@ -10,6 +10,12 @@
 
 ## 🌟 New Features
 
+- **Dev Container Support**:
+  - Added a `.devcontainer` setup so the project can be developed in a reproducible container (locally, on a remote
+    Docker host, or in Codespaces). It pins Rust 1.89.0, adds the WASM and musl targets, and installs `trunk`,
+    `wasm-bindgen`, `cross`, `cargo-edit`, `mdbook`, and `markdownlint-cli2`, forwarding the backend (8901) and
+    frontend dev-server (9899) ports.
+
 - **UI Micro-Interactions**:
   - Cards now gently lift with a soft shadow on hover, buttons give a subtle press/ripple feedback when clicked,
     and collapse/accordion chevrons smoothly rotate between open and closed states. All effects honor
