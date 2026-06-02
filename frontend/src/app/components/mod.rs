@@ -53,6 +53,7 @@ mod toastr;
 mod toggle_switch;
 mod userlist;
 mod websocket_status;
+mod health_banner;
 
 mod cluster_flags_input;
 mod country;
@@ -73,7 +74,7 @@ pub(crate) use self::{
     accordion::*, accordion_panel::*, authentication::*, breadcrumbs::*, card::*, cell_value::*, chip::*,
     cluster_flags_input::*, collapse_panel::*, country::*, csv_table::*, custom_dialog::*, dashboard::*, date_input::*,
     date_input_action::*, downloads::DownloadsView, drop_down_icon_button::*, error_boundary::*, field_explanation::*,
-    field_id::*, filter::*, hide_content::*, home::*, icon_button::*, key_value_editor::*, language_picker::*,
+    field_id::*, filter::*, health_banner::*, hide_content::*, home::*, icon_button::*, key_value_editor::*, language_picker::*,
     loading_screen::*, login::*, no_access::*, no_content::*, panel::*, particle_flow_background::*, playlist::*,
     radio_button_group::*, rbac::*, reveal_content::*, role_based_content::*, search::*, select::*, setup::*,
     sidebar::*, source_editor::*, svg_icon::*, table::*, tabset::*, tag_list::*, text_button::*, textarea::*,
