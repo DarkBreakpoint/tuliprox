@@ -15,6 +15,7 @@ use crate::{
     model::{EventMessage, ViewType},
     provider::DialogProvider,
     services::{FlagsLoadState, ToastCloseMode, ToastOptions},
+    utils::{get_location_hash, set_location_hash},
 };
 use gloo_timers::future::TimeoutFuture;
 use log::error;
@@ -25,7 +26,9 @@ use shared::{
     },
     utils::Internable,
 };
-use std::{cell::Cell, future, rc::Rc};
+use std::{cell::Cell, future, rc::Rc, str::FromStr};
+use wasm_bindgen::{closure::Closure, JsCast};
+use web_sys::window;
 use yew::{platform::spawn_local, prelude::*, suspense::use_future};
 
 #[component]
@@ -37,7 +40,13 @@ pub fn Home() -> Html {
     let api_proxy_config = use_state(|| None::<Rc<ApiProxyConfigDto>>);
     let status = use_state(|| None::<Rc<StatusCheck>>);
     let system_info = use_state(|| None::<Rc<SystemInfo>>);
-    let view_visible = use_state(|| if setup_mode { Some(ViewType::Config) } else { None });
+    let view_visible = use_state(|| {
+        if setup_mode {
+            Some(ViewType::Config)
+        } else {
+            get_location_hash().and_then(|hash| ViewType::from_str(&hash).ok())
+        }
+    });
     let theme = use_state(Theme::get_current_theme);
     let force_update = use_force_update();
 
@@ -57,6 +66,7 @@ pub fn Home() -> Html {
     let handle_view_change_sidebar = {
         let view_vis = view_visible.clone();
         Callback::from(move |view: ViewType| {
+            set_location_hash(view.as_str());
             view_vis.set(Some(view));
         })
     };
@@ -188,6 +198,45 @@ pub fn Home() -> Html {
                 flags_loaded.force_update();
             }
             move || cancelled.set(true)
+        });
+    }
+
+    {
+        use_effect_with(*view_visible, move |current| {
+            if !setup_mode {
+                if let Some(view) = current {
+                    let want = view.as_str();
+                    if get_location_hash().as_deref() != Some(want) {
+                        set_location_hash(want);
+                    }
+                }
+            }
+            || ()
+        });
+    }
+
+    {
+        let view_vis = view_visible.clone();
+        use_effect_with((), move |_| {
+            let closure = Closure::<dyn FnMut(Event)>::wrap(Box::new(move |_event: Event| {
+                if let Some(view) = get_location_hash().and_then(|hash| ViewType::from_str(&hash).ok()) {
+                    view_vis.set(Some(view));
+                }
+            }));
+            let win = window();
+            if let Some(win) = win.as_ref() {
+                if win
+                    .add_event_listener_with_callback("hashchange", closure.as_ref().unchecked_ref())
+                    .is_err()
+                {
+                    error!("failed to register hashchange listener");
+                }
+            }
+            move || {
+                if let Some(win) = window() {
+                    let _ = win.remove_event_listener_with_callback("hashchange", closure.as_ref().unchecked_ref());
+                }
+            }
         });
     }
 

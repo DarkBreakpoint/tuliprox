@@ -10,6 +10,10 @@
 
 ## 🌟 New Features
 
+- **Bookmarkable Views (Deep Linking)**:
+  - The active view is now reflected in the URL hash (e.g. `#stats`, `#source_editor`), so views can be
+  - Browser back/forward navigation and manual hash edits now switch the active view accordingly.
+
 - **Dev Container Support**:
   - Added a `.devcontainer` setup so the project can be developed in a reproducible container (locally, on a remote
     Docker host, or in Codespaces). It pins Rust 1.89.0, adds the WASM and musl targets, and installs `trunk`,
